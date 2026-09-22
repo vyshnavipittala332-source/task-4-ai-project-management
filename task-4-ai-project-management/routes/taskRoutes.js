@@ -1,6 +1,6 @@
 const express = require("express");
-const Task = require("../models/Task");
-const Project = require("../models/Project");
+const Task = require("../models/task");
+const Project = require("../models/project");
 const auth = require("../middleware/auth");
 
 const router = express.Router();
@@ -52,7 +52,7 @@ router.post("/", auth, async (req, res) => {
   }
 });
 
-// Get all tasks for user's projects
+// Get all tasks
 router.get("/", auth, async (req, res) => {
   try {
     const projects = await Project.find({
@@ -65,7 +65,8 @@ router.get("/", auth, async (req, res) => {
       project: { $in: projectIds }
     })
       .populate("project", "name")
-      .populate("assignedTo", "name email");
+      .populate("assignedTo", "name email")
+      .sort({ createdAt: -1 });
 
     res.json(tasks);
   } catch (error) {
@@ -76,16 +77,27 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
-// Get one task
+// Get single task
 router.get("/:id", auth, async (req, res) => {
   try {
     const task = await Task.findById(req.params.id)
-      .populate("project", "name owner")
+      .populate("project", "name")
       .populate("assignedTo", "name email");
 
-    if (!task || task.project.owner.toString() !== req.user.id) {
+    if (!task) {
       return res.status(404).json({
         message: "Task not found"
+      });
+    }
+
+    const project = await Project.findOne({
+      _id: task.project._id,
+      owner: req.user.id
+    });
+
+    if (!project) {
+      return res.status(403).json({
+        message: "Access denied"
       });
     }
 
@@ -101,24 +113,64 @@ router.get("/:id", auth, async (req, res) => {
 // Update task
 router.put("/:id", auth, async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id).populate(
-      "project",
-      "owner"
-    );
+    const {
+      title,
+      description,
+      status,
+      priority,
+      project,
+      assignedTo
+    } = req.body;
 
-    if (!task || task.project.owner.toString() !== req.user.id) {
+    const existingTask = await Task.findById(req.params.id);
+
+    if (!existingTask) {
       return res.status(404).json({
         message: "Task not found"
       });
     }
 
-    task.title = req.body.title ?? task.title;
-    task.description = req.body.description ?? task.description;
-    task.status = req.body.status ?? task.status;
-    task.priority = req.body.priority ?? task.priority;
-    task.assignedTo = req.body.assignedTo ?? task.assignedTo;
+    const existingProject = await Project.findOne({
+      _id: existingTask.project,
+      owner: req.user.id
+    });
 
-    await task.save();
+    if (!existingProject) {
+      return res.status(403).json({
+        message: "Access denied"
+      });
+    }
+
+    if (project) {
+      const newProject = await Project.findOne({
+        _id: project,
+        owner: req.user.id
+      });
+
+      if (!newProject) {
+        return res.status(404).json({
+          message: "New project not found"
+        });
+      }
+    }
+
+    const task = await Task.findByIdAndUpdate(
+      req.params.id,
+      {
+        title,
+        description,
+        status,
+        priority,
+        project,
+        assignedTo
+      },
+      {
+        new: true,
+        runValidators: true
+      }
+    )
+      .populate("project", "name")
+      .populate("assignedTo", "name email");
 
     res.json(task);
   } catch (error) {
@@ -132,14 +184,22 @@ router.put("/:id", auth, async (req, res) => {
 // Delete task
 router.delete("/:id", auth, async (req, res) => {
   try {
-    const task = await Task.findById(req.params.id).populate(
-      "project",
-      "owner"
-    );
+    const task = await Task.findById(req.params.id);
 
-    if (!task || task.project.owner.toString() !== req.user.id) {
+    if (!task) {
       return res.status(404).json({
         message: "Task not found"
+      });
+    }
+
+    const project = await Project.findOne({
+      _id: task.project,
+      owner: req.user.id
+    });
+
+    if (!project) {
+      return res.status(403).json({
+        message: "Access denied"
       });
     }
 

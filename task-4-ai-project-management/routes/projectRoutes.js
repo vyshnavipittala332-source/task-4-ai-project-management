@@ -1,5 +1,5 @@
 const express = require("express");
-const Project = require("../models/Project");
+const Project = require("../models/project");
 const auth = require("../middleware/auth");
 
 const router = express.Router();
@@ -30,12 +30,12 @@ router.post("/", auth, async (req, res) => {
   }
 });
 
-// Get user's projects
+// Get all projects
 router.get("/", auth, async (req, res) => {
   try {
     const projects = await Project.find({
       owner: req.user.id
-    }).populate("owner", "name email");
+    }).sort({ createdAt: -1 });
 
     res.json(projects);
   } catch (error) {
@@ -46,13 +46,13 @@ router.get("/", auth, async (req, res) => {
   }
 });
 
-// Get one project
+// Get single project
 router.get("/:id", auth, async (req, res) => {
   try {
     const project = await Project.findOne({
       _id: req.params.id,
       owner: req.user.id
-    }).populate("owner", "name email");
+    });
 
     if (!project) {
       return res.status(404).json({
@@ -72,14 +72,16 @@ router.get("/:id", auth, async (req, res) => {
 // Update project
 router.put("/:id", auth, async (req, res) => {
   try {
+    const { name, description } = req.body;
+
     const project = await Project.findOneAndUpdate(
       {
         _id: req.params.id,
         owner: req.user.id
       },
       {
-        name: req.body.name,
-        description: req.body.description
+        name,
+        description
       },
       {
         new: true,
